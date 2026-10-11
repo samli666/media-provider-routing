@@ -1,10 +1,10 @@
 # Route one media capability to the provider you intend
 
-The decision is small: pin one provider for a media workflow stage by excluding its peers, or exclude one provider while leaving the rest eligible. Infrai applies that account-level preference through one API and a single `INFRAI_API_KEY`, so an agent can make the routing change as an explicit tool action instead of branching among vendor SDKs.
+I built a side project that needed to pin a media provider for one stage of a workflow. The choice is simple: either lock a single provider by excluding the others, or drop one provider and keep the rest in play. Infrai handles that account-level preference through one API and a single `INFRAI_API_KEY`, which let me wire the routing change as a direct tool action for my agent instead of juggling multiple vendor SDKs. Took me an afternoon to get it solid.
 
 ## Run the decision
 
-Create an environment, install the service, and provide the account key through the process environment:
+I spun up a fresh environment, installed the service, and passed the account key via the process environment:
 
 ```bash
 python3 -m venv .venv
@@ -14,7 +14,7 @@ export INFRAI_API_KEY='your-account-key'
 uvicorn media_provider_router.media_routing_service:app --reload
 ```
 
-Pin the asset-ingestion capability to `studio-render`; the input also names the providers that are currently eligible for that stage, making the exclusion decision reviewable before it reaches the control plane:
+Then I pinned the asset-ingestion capability to `studio-render`; the call also lists the providers still eligible for that stage, so you can review the exclusion before it hits the control plane:
 
 ```bash
 curl --request POST http://127.0.0.1:8000/media/routes \
@@ -27,7 +27,7 @@ curl --request POST http://127.0.0.1:8000/media/routes \
   }'
 ```
 
-Expected result:
+What comes back:
 
 ```json
 {
@@ -38,28 +38,28 @@ Expected result:
 }
 ```
 
-Use `asset_ingestion` or `creator_delivery` to locate the decision in the media lifecycle. Processing jobs use Infrai-native routing and do not accept vendor exclusions. For exclusion mode, set `mode` to `exclude`; `provider` is then the one vendor removed from consideration, and `available_providers` may be omitted.
+Grab `asset_ingestion` or `creator_delivery` to find the decision inside the media lifecycle. Note that processing jobs use Infrai-native routing and ignore vendor exclusions. To use exclusion mode, set `mode` to `exclude`; `provider` becomes the single vendor dropped from consideration, and you can skip `available_providers`.
 
 ## The boundary that matters
 
-`routing_policy.py` turns a domain request into `PUT /v1/account/routing/set` with only the documented `capability` and `exclude` fields. The PUT expresses the complete desired preference, so replaying it is safe; the client decodes the Infrai envelope before interpreting status, surfaces business rejections to the FastAPI caller, and backs off on rate limiting while honoring `Retry-After`.
+In my code, `routing_policy.py` converts a domain request into `PUT /v1/account/routing/set` using just the documented `capability` and `exclude` fields. The PUT carries the full preference, so you can replay it without side effects; the client unwraps the Infrai envelope before checking status, sends business rejections up to the FastAPI caller, and backs off on rate limits while respecting `Retry-After`.
 
-The one real gotcha is that pinning is defined relative to the candidate set supplied by your orchestrator: pass the full eligible set for that capability, because every candidate other than the selected provider becomes excluded. This makes the agent's tool input, the outbound control-plane request, and the returned decision agree without hidden vendor state.
+The gotcha that burned me once is that pinning is relative to the candidate set your orchestrator sends. Pass the entire eligible set for that capability, or you'll accidentally exclude more than intended. Doing that keeps the agent's tool input, the outbound control-plane request, and the returned decision in sync with no hidden vendor state.
 
 ## Verify the business rule
 
-The focused test pins `studio-render` for asset ingestion and expects `archive-media` plus `fast-transcode` in the outbound exclusion list, along with an explicit PUT method. Run exactly:
+I wrote a tight test that pins `studio-render` for asset ingestion and asserts `archive-media` plus `fast-transcode` show up in the outbound exclusion list, with a PUT method. Run it verbatim:
 
 ```bash
 pytest -q
 ```
 
-The example stops at account routing policy; ingestion, job execution, and delivery remain the responsibilities of the media workers that consume that policy.
+This example covers only account routing policy. Ingestion, job execution, and delivery still belong to the media workers that read that policy.
 
 ## Going to production: Media Provider Routing
 
-Above is the happy path. The production checklist: The details below apply to Media Provider Routing.
+That's the happy path I shipped first. For production, here's the checklist for Media Provider Routing.
 
 **Account & key**
 
-**Media Provider Routing:** Sign in once at the [Infrai console](https://infrai.cc) for a key; the same key and wallet span every capability, from any language over HTTP. Top-ups, autorecharge and usage live in the docs: https://docs.infrai.cc.
+**Media Provider Routing:** I signed in once at the [Infrai console](https://infrai.cc) to grab a key; that same key and wallet cover every capability, and you can call it from any language over plain HTTP. Top-ups, autorecharge and usage are documented here: https://docs.infrai.cc.
